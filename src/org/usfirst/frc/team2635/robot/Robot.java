@@ -1,14 +1,18 @@
 
 package org.usfirst.frc.team2635.robot;
 
+import org.usfirst.frc.team2635.modules.DriveThreeMotor;
+import org.usfirst.frc.team2635.modules.DriveThreeMotorTankDrive;
+import org.usfirst.frc.team2635.modules.PIDOutputThreeMotorRotate;
+
 import com.kauailabs.navx.frc.AHRS;
 import com.lakemonsters2635.sensor.interfaces.BaseSensor;
-import com.lakemonsters2635.sensor.interfaces.IOutput;
-import com.lakemonsters2635.sensor.modules.OutputAngleFromImage;
 import com.lakemonsters2635.sensor.modules.SensorAngleFromCameraColorSense;
+import com.lakemonsters2635.sensor.modules.SensorTargetAngleFromImage;
 import com.lakemonsters2635.sensor.modules.SensorUnwrapper;
 import com.lakemonsters2635.util.ImageGrabber;
 import com.ni.vision.NIVision;
+import com.ni.vision.NIVision.PointDouble;
 
 import edu.wpi.first.wpilibj.CANTalon;
 import edu.wpi.first.wpilibj.IterativeRobot;
@@ -41,30 +45,40 @@ public class Robot extends IterativeRobot
 	int CAMERA_RESOLUTION_X = 640;
 	double VIEW_ANGLE = 64.0; //View angle fo camera, set to Axis m1011 by default, 64 for m1013, 51.7 for 206, 52 for HD3000 square, 60 for HD3000 640x480
 	double AREA_MINIMUM = 0.5; //Default Area minimum for particle as a percentage of total image area
-	IOutput<Double, NIVision.Image> angleSensor;
+	BaseSensor<PointDouble> angleSensor;
 	ImageGrabber camera;
-	final int REAR_RIGHT_CHANNEL = 3;
-	final int FRONT_RIGHT_CHANNEL = 4;
-	final int REAR_LEFT_CHANNEL = 1;
-	final int FRONT_LEFT_CHANNEL = 2;
-	String KEY_P = "P";
-	String KEY_I = "I";
-	String KEY_D = "D";
+	final int REAR_RIGHT_CHANNEL = 1;
+	final int MID_RIGHT_CHANNEL = 2;
+	final int FRONT_RIGHT_CHANNEL = 3;
+	
+	final int REAR_LEFT_CHANNEL = 4;
+	final int MID_LEFT_CHANNEL = 5;
+	final int FRONT_LEFT_CHANNEL = 6;
+
+	String KEY_P = "Rotate P";
+	String KEY_I = "Rotate I";
+	String KEY_D = "Rotate D";
 
 	CANTalon rearRightMotor;
+	CANTalon midRightMotor;
 	CANTalon frontRightMotor;
+	
 	CANTalon rearLeftMotor;
+	CANTalon midLeftMotor;
 	CANTalon frontLeftMotor;
 	
-	RobotDrive drive;
+	DriveThreeMotor robotDrive;
+
     
-	Joystick joystick;
-    
+	Joystick rightJoystick; //Shooter controls
+	Joystick leftJoystick; //Climber controls
+
 	PIDController pid;
     
 	AHRS navx;
     SensorUnwrapper unwrapper;
 
+    int LEFT_JOYSTICK_CHANNEL;
 	public void robotInit()
 	{
 		SmartDashboard.putNumber(KEY_P, 0.0);
@@ -73,21 +87,45 @@ public class Robot extends IterativeRobot
         int session = NIVision.IMAQdxOpenCamera("cam0",
                 NIVision.IMAQdxCameraControlMode.CameraControlModeController);
         //By default visionSensor will grab the angle every 20ms
-		angleSensor = new OutputAngleFromImage(CAMERA_RESOLUTION_X,  VIEW_ANGLE, RETRO_HUE_RANGE, RETRO_SAT_RANGE, RETRO_VAL_RANGE, AREA_MINIMUM);
+        //TODO: get aspect ratio
+		angleSensor = new SensorTargetAngleFromImage(CAMERA_RESOLUTION_X,  VIEW_ANGLE, AREA_MINIMUM, AREA_MINIMUM, RETRO_HUE_RANGE, RETRO_SAT_RANGE, RETRO_VAL_RANGE, AREA_MINIMUM);
 		
 		camera = new ImageGrabber(session, true);
 		rearRightMotor = new CANTalon(REAR_RIGHT_CHANNEL);
-		frontRightMotor = new CANTalon(FRONT_RIGHT_CHANNEL);
-		rearLeftMotor = new CANTalon(REAR_LEFT_CHANNEL);
+    	//rearRightMotor.changeControlMode(TalonControlMode.Follower);
+    	//rearRightMotor.set(FRONT_RIGHT_CHANNEL);
+    	
+    	midRightMotor = new CANTalon(MID_RIGHT_CHANNEL);
+    	//midRightMotor.changeControlMode(TalonControlMode.Follower);
+    	//midRightMotor.set(FRONT_RIGHT_CHANNEL);
+    	
+    	frontRightMotor = new CANTalon(FRONT_RIGHT_CHANNEL);
+    	//frontRightMotor.changeControlMode(TalonControlMode.Speed);
+    	//frontRightMotor.setPID(DRIVE_P_DEFAULT, DRIVE_I_DEFAULT, DRIVE_D_DEFAULT);
+    	
+    	rearLeftMotor = new CANTalon(REAR_LEFT_CHANNEL);
+    	//rearLeftMotor.changeControlMode(TalonControlMode.Follower);
+    	//rearLeftMotor.set(FRONT_LEFT_CHANNEL);
+    	
+    	midLeftMotor = new CANTalon(MID_LEFT_CHANNEL);
+    	//midLeftMotor.changeControlMode(TalonControlMode.Follower);
+    	//midLeftMotor.set(FRONT_LEFT_CHANNEL);
+    	
 		frontLeftMotor = new CANTalon(FRONT_LEFT_CHANNEL);
-		drive = new RobotDrive(frontLeftMotor, rearLeftMotor, frontRightMotor, rearRightMotor);
+    	//frontLeftMotor.changeControlMode(TalonControlMode.Speed);
+    	//frontLeftMotor.setPID(DRIVE_P_DEFAULT, DRIVE_I_DEFAULT, DRIVE_D_DEFAULT);
+		robotDrive = new DriveThreeMotorTankDrive(rearRightMotor, midRightMotor, frontRightMotor, rearLeftMotor, midLeftMotor, frontLeftMotor);
+      	
+    	rightJoystick = new Joystick(JOYSTICK_RIGHT_CHANNEL);
+    	leftJoystick = new Joystick(JOYSTICK_LEFT_CHANNEL);
+
 		
 		joystick = new Joystick(0);
 		
 		navx = new AHRS(SerialPort.Port.kMXP);
 		unwrapper = new SensorUnwrapper(180.0, new SensorNavxAngle(navx));
 		
-		pid = new PIDController(0.0, 0.0, 0.0, unwrapper, new PIDOutputDrive(drive));
+		pid = new PIDController(0.0, 0.0, 0.0, unwrapper, new PIDOutputThreeMotorRotate(robotDrive));
 	}
 
 	/**
@@ -118,18 +156,27 @@ public class Robot extends IterativeRobot
 	 */
 	public void teleopPeriodic()
 	{
-		SmartDashboard.putNumber("Current Angle", unwrapper.sense());
-		if(joystick.getRawButton(1))
+		SmartDashboard.putNumber("Current Angle", unwrapper.sense(null));
+		if(rightJoystick.getRawButton(1))
 		{
 			if(!pid.isEnabled())
 			{
-				double angleToTarget = angleSensor.getOutput(camera.getImage());
-				SmartDashboard.putNumber("Angle to target", angleToTarget);
-				double setPoint = (unwrapper.sense() + angleToTarget);
-				SmartDashboard.putNumber("Setpoint", setPoint);
+				NIVision.Image image = camera.getImage();
+				double angleToTargetX = angleSensor.sense(image).x;
+				double angleToTargetY = angleSensor.sense(image).y;
+				SmartDashboard.putNumber("Angle to target X", angleToTargetX);
+				SmartDashboard.putNumber("Angle to target Y", angleToTargetY);
+				double setPointX = (unwrapper.sense(null) + angleToTargetX);
+				//TODO: find tilt max height
+				double setPointY = (angleToTargetY / VIEW_ANGLE) * TILT_MAX_HEIGHT;
+				
+				SmartDashboard.putNumber("Setpoint X", setPointX);
+				SmartDashboard.putNumber("Set point Y", setPointY);
+				
+				//TODO: add logic for Y tilting. See 2016Robot
 				pid.setPID(SmartDashboard.getNumber(KEY_P), SmartDashboard.getNumber(KEY_I), SmartDashboard.getNumber(KEY_D));
 				System.out.println(SmartDashboard.getNumber(KEY_I));
-				pid.setSetpoint(setPoint);
+				pid.setSetpoint(setPointX);
 				pid.enable();
 			}
 			
@@ -140,7 +187,7 @@ public class Robot extends IterativeRobot
 			{
 				pid.disable();
 			}
-			drive.arcadeDrive(-joystick.getRawAxis(1), -joystick.getRawAxis(0));
+			robotDrive.drive(leftJoystick.getRawAxis(1), -rightJoystick.getRawAxis(1));
 		}
 			
 	}

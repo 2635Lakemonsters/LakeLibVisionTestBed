@@ -14,7 +14,7 @@ public class SensorNavxAngle extends BaseSensor<Double>
 		this.navx = navx;
 	}
 	@Override
-	public Double sense() 
+	public Double sense(Object unused) 
 	{
 		return navx.getAngle();
 	}
